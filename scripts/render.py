@@ -272,15 +272,49 @@ def auto_flavor(source_video, brief, out_dir):
 
 
 # ============================================================
-# stage 4: render loop
+# stage 4: render + encode (streaming)
 # ============================================================
 
-def render_loop(source_video, audio_path, *,
-                detector_name, detector_params,
-                viz_names, viz_params,
-                postfx_names, postfx_params,
-                fps, duration, label, layout_name,
-                scratch_dir, src_size):
+def _scale_blobs(blobs, scale: float):
+    """Multiply blob coords/sizes by `scale`, returning new namedtuples."""
+    if scale == 1.0:
+        return blobs
+    out = []
+    for b in blobs:
+        out.append(detectors.Blob(
+            int(round(b.x * scale)), int(round(b.y * scale)),
+            int(round(b.w * scale)), int(round(b.h * scale)),
+            b.score, b.id))
+    return out
+
+
+def _open_ffmpeg_writer(out_path: Path, *, w: int, h: int, fps: int,
+                        audio_path):
+    """Spawn ffmpeg reading raw BGR24 frames on stdin, encoding to `out_path`.
+    Returns the Popen handle."""
+    if out_path.exists():
+        out_path.unlink()
+    cmd = ["ffmpeg", "-y", "-loglevel", "error",
+           "-f", "rawvideo", "-pix_fmt", "bgr24",
+           "-s", f"{w}x{h}", "-r", str(fps),
+           "-i", "-"]
+    if audio_path is not None:
+        cmd += ["-i", str(audio_path)]
+    cmd += ["-c:v", "libx264", "-crf", "18", "-pix_fmt", "yuv420p"]
+    if audio_path is not None:
+        cmd += ["-c:a", "aac", "-b:a", "192k", "-shortest"]
+    cmd += [str(out_path)]
+    return subprocess.Popen(cmd, stdin=subprocess.PIPE)
+
+
+def render_and_encode(source_video, audio_path, out_path, *,
+                       detector_name, detector_params,
+                       viz_names, viz_params,
+                       postfx_names, postfx_params,
+                       fps, duration, label, layout_name,
+                       src_size, detect_scale: float = 1.0):
+    """Render every frame and pipe BGR bytes straight into ffmpeg's stdin —
+    no PNG round-trip. Single-pass."""
     layout = _layout_for(layout_name)
     if layout["W"] is None:
         layout["W"] = src_size; layout["H"] = src_size
@@ -293,26 +327,23 @@ def render_loop(source_video, audio_path, *,
     else:
         feats = audio_features.silence_features(n_frames)
 
-    # detector + tracker
+    # detector + tracker + viz + postfx chains
     det = detectors.get_detector(detector_name, **detector_params)
     tracker = detectors.IDTracker(max_match_dist=80)
-
-    # viz + postfx chains
     viz_chain = visualizers.build_chain(",".join(viz_names), viz_params)
     fx_chain = postfx.build_chain(",".join(postfx_names) if postfx_names else "",
                                     postfx_params)
 
-    # source frames — read sequentially via VideoCapture
+    # cache source frames into memory once
     cap = cv2.VideoCapture(str(source_video))
     n_src = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     src_fps = cap.get(cv2.CAP_PROP_FPS) or fps
     print(f"[render] source: {n_src} frames @ {src_fps:.1f} fps; "
           f"target: {n_frames} frames @ {fps} fps; "
-          f"layout={layout_name} {layout['W']}x{layout['H']}")
+          f"layout={layout_name} {layout['W']}x{layout['H']}; "
+          f"detect_scale={detect_scale}")
     print(f"[render] detector={detector_name}  viz={viz_names}  "
           f"postfx={postfx_names or '[]'}")
-
-    # cache source frames into memory (~26s × 1080² × 3 = ~80MB)
     frames = []
     for _ in range(n_src):
         ok, fr = cap.read()
@@ -327,44 +358,65 @@ def render_loop(source_video, audio_path, *,
         sys.exit("[render] source video produced no frames")
     n_src = len(frames)
 
-    # set up viz state
+    # detect-scale buffer: precompute downsampled frames if requested
+    if detect_scale != 1.0:
+        ds_size = max(64, int(round(src_size * detect_scale)))
+        ds_frames = [cv2.resize(f, (ds_size, ds_size),
+                                 interpolation=cv2.INTER_AREA)
+                      for f in frames]
+        coord_back = src_size / ds_size
+    else:
+        ds_frames = frames
+        coord_back = 1.0
+
+    # set up viz state at full canvas size
     for v in viz_chain:
         v.setup(src_size, src_size)
     for fx in fx_chain:
         fx.setup(src_size, src_size)
 
-    # render
-    scratch_dir.mkdir(parents=True, exist_ok=True)
-    for old in scratch_dir.glob("f_*.png"):
-        old.unlink()
+    # open ffmpeg pipe
+    out_w, out_h = layout["W"], layout["H"]
+    writer = _open_ffmpeg_writer(out_path, w=out_w, h=out_h, fps=fps,
+                                  audio_path=audio_path)
+
+    # render loop
     t0 = time.time()
     for f in range(n_frames):
         t = f / fps
         s_idx = int((f / max(1, n_frames - 1)) * (n_src - 1))
         pane = frames[s_idx].copy()
 
-        blobs, mask = det(pane)
+        # detection (possibly at lower resolution)
+        blobs, mask = det(ds_frames[s_idx])
+        if detect_scale != 1.0:
+            blobs = _scale_blobs(blobs, coord_back)
+            mask = cv2.resize(mask, (src_size, src_size),
+                              interpolation=cv2.INTER_NEAREST)
         blobs = tracker.assign(blobs)
         a = audio_features.slice_at(feats, f)
 
-        # blob viz layer chain
         for v in viz_chain:
             pane = v(pane, blobs, mask, t=t, audio=a)
-
-        # postfx chain
         for fx in fx_chain:
             pane = fx(pane, blobs, mask, t=t, audio=a)
 
         # compose into final canvas
-        if (layout["W"] == src_size and layout["H"] == src_size):
+        if out_w == src_size and out_h == src_size:
             canvas = pane
         else:
-            canvas = np.zeros((layout["H"], layout["W"], 3), dtype=np.uint8)
+            canvas = np.zeros((out_h, out_w, 3), dtype=np.uint8)
             sx, sy = layout["src_xy"]
             canvas[sy:sy + src_size, sx:sx + src_size] = pane
 
-        cv2.imwrite(str(scratch_dir / f"f_{f:05d}.png"), canvas,
-                    [cv2.IMWRITE_PNG_COMPRESSION, 3])
+        # ensure C-contiguous before pushing bytes
+        if not canvas.flags["C_CONTIGUOUS"]:
+            canvas = np.ascontiguousarray(canvas)
+        try:
+            writer.stdin.write(canvas.tobytes())
+        except BrokenPipeError:
+            sys.exit("[render] ffmpeg pipe broke — check ffmpeg stderr")
+
         if (f + 1) % 30 == 0 or f == n_frames - 1:
             dt = time.time() - t0
             fps_eff = (f + 1) / dt if dt > 0 else 0
@@ -372,23 +424,11 @@ def render_loop(source_video, audio_path, *,
             print(f"  frame {f+1}/{n_frames}  blobs={len(blobs):2d}  "
                   f"{fps_eff:.1f}fps  eta={eta:.0f}s",
                   flush=True)
-    cv2.putText  # silence unused-import linter (kept for clarity above)
 
-
-def encode_final(scratch_dir, audio_path, fps, out_path, label):
-    if out_path.exists():
-        out_path.unlink()
-    cmd = ["ffmpeg", "-y", "-framerate", str(fps),
-           "-i", str(scratch_dir / "f_%05d.png")]
-    if audio_path is not None:
-        cmd += ["-i", str(audio_path)]
-    cmd += ["-c:v", "libx264", "-crf", "18", "-pix_fmt", "yuv420p"]
-    if audio_path is not None:
-        cmd += ["-c:a", "aac", "-b:a", "192k", "-shortest"]
-    cmd += [str(out_path)]
-    res = subprocess.run(cmd, capture_output=True, text=True)
-    if res.returncode != 0:
-        sys.exit("ffmpeg encode failed:\n" + res.stderr[-2000:])
+    writer.stdin.close()
+    rc = writer.wait()
+    if rc != 0:
+        sys.exit(f"ffmpeg encode failed (exit {rc})")
     sz_mb = out_path.stat().st_size // (1024 * 1024)
     print(f"[{label}] DONE → {out_path}  ({sz_mb}MB)")
 
@@ -450,8 +490,23 @@ def main():
     ap.add_argument("--cache-dir", default=None,
                     help="cache IA downloads between runs")
     ap.add_argument("--keep-intermediate", action="store_true",
-                    help="keep the .scratch_* and .src_cache_* dirs")
+                    help="keep the .src_cache_* dirs")
+    # performance
+    ap.add_argument("--detect-scale", type=float, default=1.0,
+                    help="run detection at this fraction of source size "
+                         "(0.5 = ~4x faster detection at cost of slightly "
+                         "less precise blob bboxes)")
+    ap.add_argument("--quick", action="store_true",
+                    help="fast iteration preset: 480 px square, 8 s, "
+                         "detect-scale 1.0 — overrides --size, --duration, "
+                         "and --detect-scale unless they were given explicitly")
     args = ap.parse_args()
+    if args.quick:
+        # only override defaults — respect explicit user values
+        if "--size" not in sys.argv:
+            args.size = 480
+        if "--duration" not in sys.argv:
+            args.duration = 8.0
 
     _check_ffmpeg()
 
@@ -482,20 +537,12 @@ def main():
     fx_list = [s.strip() for s in args.postfx.split(",") if s.strip()]
     viz_list = [s.strip() for s in viz_spec.split(",") if s.strip()]
 
-    # 4. render
+    # 4. render — single-pass streaming: blob loop pipes BGR frames straight
+    #    into ffmpeg's stdin, no PNG intermediates.
     label = slug.upper()[:14]
     layouts = ["square"] if not args.dual_format else ["horizontal", "vertical"]
     final_paths = []
     for layout_name in layouts:
-        scratch = work_dir / f".scratch_{layout_name}"
-        render_loop(
-            source, audio,
-            detector_name=det_name, detector_params=det_params,
-            viz_names=viz_list, viz_params=viz_params,
-            postfx_names=fx_list, postfx_params=fx_params,
-            fps=args.fps, duration=args.duration, label=label,
-            layout_name=layout_name, scratch_dir=scratch, src_size=args.size,
-        )
         layout = _layout_for(layout_name)
         if layout["W"] is None:
             w_out, h_out = args.size, args.size
@@ -507,15 +554,16 @@ def main():
             out_path = Path(args.output)
         else:
             out_path = work_dir / f"{slug}.mp4"
-        encode_final(scratch, audio, args.fps, out_path, label)
+        render_and_encode(
+            source, audio, out_path,
+            detector_name=det_name, detector_params=det_params,
+            viz_names=viz_list, viz_params=viz_params,
+            postfx_names=fx_list, postfx_params=fx_params,
+            fps=args.fps, duration=args.duration, label=label,
+            layout_name=layout_name, src_size=args.size,
+            detect_scale=args.detect_scale,
+        )
         final_paths.append(out_path)
-        if not args.keep_intermediate:
-            for p in scratch.glob("f_*.png"):
-                p.unlink()
-            try:
-                scratch.rmdir()
-            except OSError:
-                pass
 
     print(f"\n== blob-tracker DONE: {len(final_paths)} output(s)")
     for p in final_paths:

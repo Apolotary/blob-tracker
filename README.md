@@ -65,6 +65,10 @@ it: `pip uninstall opencv-python && pip install opencv-contrib-python`.
 ```bash
 export MOONSHOT_API_KEY=sk-...        # only when using --brief / --compose-music / --auto-flavor
 
+# 0. Grab a starter pack of public-domain demo clips (240 MB total)
+python scripts/fetch_demos.py
+# → ~/blob-tracker/demos/{bee-city,fireworks-vlog,...}.mp4
+
 # 1. Pure: existing video + existing audio
 python scripts/render.py --video clip.mp4 --audio track.wav \
     --detector mog2 --viz centroid-trail,network --output out.mp4
@@ -87,7 +91,25 @@ python scripts/render.py --video clip.mp4 \
     --detector mog2 --viz spatial-echo,corner-ticks \
     --viz-params '{"spatial-echo":{"mode":"rotate","time_shift_frames":12}}' \
     --output out.mp4
+
+# 6. Quick-iteration preset: 480 px, 8s — done in ~2s
+python scripts/render.py --quick --video clip.mp4 --detector mog2 \
+    --viz centroid-trail,network --output preview.mp4
 ```
+
+### Performance flags
+
+| Flag | What it does | Typical speedup |
+|---|---|---|
+| (default — pipes BGR straight to ffmpeg, no PNG round-trip) | always on | ~4× over a write-PNGs-then-encode pipeline |
+| `--detect-scale 0.5` | run detection at half resolution; viz still at full | 2–3× for slow detectors (`flow`, `csrt`, `saliency-*`, `watershed`) |
+| `--quick` | preset: 480 px, 8 s, fast iteration | ~30× vs full 1080² 26 s render |
+
+Reference render times on Apple M1 / 8 GB at 1080² × 26 s:
+
+- `motion-diff` + default viz: **~12 s**
+- `flow` + viz, `--detect-scale 0.5`: **~40 s**
+- `--quick` (any detector): **~2 s**
 
 Output goes to `--output` (single mp4) or to
 `$BLOB_OUT_DIR/<slug>/` (multi-file run with intermediate `winner.json`,
@@ -116,6 +138,7 @@ Full install paths and Hermes config in [`INSTALL.md`](INSTALL.md).
 | Script | Uses Kimi | What it does |
 |---|---|---|
 | `scripts/render.py` | text+vision (opt) | Main entry. Composes everything. |
+| `scripts/fetch_demos.py` | — | Download the public-domain starter pack. |
 | `scripts/detectors.py` | — | Registry of 16 detector flavors. |
 | `scripts/visualizers.py` | — | Registry of 14 viz flavors. |
 | `scripts/postfx.py` | — | Registry of 13 optional glitch primitives. |
@@ -151,6 +174,8 @@ All Kimi calls go through `kimi_client.py` — swap the model ID via
   glitch primitive parameters and audio mappings
 - [`references/audio-design.md`](references/audio-design.md) —
   how the 5-layer ambient synth is built and what Kimi's mood map controls
+- [`references/demo-clips.md`](references/demo-clips.md) —
+  bundled demo clips + Pixabay/Pexels/Coverr links + yt-dlp tips
 
 ## Hackathon submission
 
