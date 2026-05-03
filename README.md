@@ -4,6 +4,12 @@
   <img src="assets/logo.png" alt="blob-tracker" width="640">
 </p>
 
+<p align="center">
+  <img src="assets/trailer-preview.gif" alt="blob-tracker preview — bee on flower with spatial-echo viz" width="360">
+  <br>
+  <em>simple-blob detector + bbox + network + spatial-echo (each box shows pixels mirrored from elsewhere)</em>
+</p>
+
 A **Hermes Agent skill** (also Claude-Code-skill compatible) that renders any
 video with audio-reactive blob tracking in **16 detector flavors** and
 **15 visualization flavors** — combine freely. The skill fills in any

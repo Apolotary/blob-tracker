@@ -26,11 +26,11 @@ mkdir -p "$TRAILER_DIR"
 # Common viz-params block — same HUD on every shot. Inner effect (centroid
 # trail / spatial echo / emojis / glyphs) is also tuned a bit.
 COMMON_VP='{
-  "bbox":          {"color":[255,255,255], "thickness":2, "show_label":true,
-                    "pulse_audio":true, "max_thickness":7},
+  "bbox":          {"color":[255,255,255], "thickness":1, "show_label":true,
+                    "pulse_audio":false},
   "network":       {"color":[255,255,255], "thickness":1,
-                    "pulse_audio":true, "max_thickness":2, "max_distance":140},
-  "spatial-echo":  {"mode":"mirror", "border_thickness":2,
+                    "pulse_audio":false, "max_distance":140},
+  "spatial-echo":  {"mode":"mirror", "border_thickness":1,
                     "border_color":[255,255,255]},
   "glyphs":        {"charset":"·+◦*"},
   "emojis":        {"font_size":56, "lifetime":18,
