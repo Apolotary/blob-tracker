@@ -1,113 +1,167 @@
-# process-variations-media-art
+# blob-tracker
 
-A Hermes Agent skill (also Claude-Code-skill compatible) that turns a one-line
-creative brief into a finished 26-second machine-vision short — autonomous
-public-domain footage search, ambient music composition, audio-reactive
-blob-tracking + glitch render, dual-format export.
+<p align="center">
+  <img src="assets/logo.png" alt="blob-tracker" width="640">
+</p>
 
-Built for the **Nous Research / Kimi Creative Hackathon (May 2026)**, Kimi
-Track. All LLM/vision calls go to Kimi (Moonshot AI) `kimi-k2.6`.
+A **Hermes Agent skill** (also Claude-Code-skill compatible) that renders any
+video with audio-reactive blob tracking in **16 detector flavors** and
+**14 visualization flavors** — combine freely. The skill fills in any
+missing input on demand: bring your own video and audio, or have it find
+a public-domain clip on the Internet Archive and compose an ambient
+soundtrack.
 
-## What it does (six stages)
+Built for the **Nous Research / Kimi Creative Hackathon (May 2026)**,
+Kimi Track. All LLM/vision calls go to Kimi (Moonshot AI) `kimi-k2.6`.
 
-1. **Brief → search queries** — Kimi picks 3-5 IA queries from the brief.
-2. **IA candidate scoring** — fetch top results from `archive.org`; Kimi-vision
-   picks the best one by examining thumbnails.
-3. **Source preparation** — auto-find the most visually-energetic 26-second
-   window; centre-square-crop to 1080×1080.
-4. **Music composition** — Kimi picks `{key, mode, bpm, mood, progression}`;
-   pure-numpy synth renders a 5-layer ambient stack.
-5. **Render** — single-pane source with audio-reactive blob tracking + a
-   configurable stack of glitch/media-art primitives. Outputs 1920×1080 +
-   1080×1920.
-6. **Title + description** — Kimi writes the YouTube metadata.
+## Highlights
+
+- **16 detector flavors** — `motion-diff` · `mog2` · `knn` · `flow` ·
+  `color-hsv` · `color-cluster` · `simple-blob` · `dog` · `circles` ·
+  `saliency-fine` · `saliency-spec` · `csrt` · `edge` · `accumulation` ·
+  `watershed` · `contour-area`
+- **14 visualization flavors** — `bbox` · `corner-ticks` · `crosshair` ·
+  `centroid-trail` · `network` · `letters` · `glyphs` · `cctv-zoom` ·
+  `silhouette` · `outline` · `voronoi` · `convex-hull` · `heatmap` ·
+  `spatial-echo` (each blob bbox shows pixels sampled from elsewhere)
+- **13 optional glitch postfx** — chromatic aberration, NTSC chroma
+  desync, kolorizer LUT, sync jitter, ripple, mosaic, scanlines, slit
+  scan, feedback, lagfun, threshold bands, edge glow, luma rotate
+- **Audio reactivity** — RMS / kick / high / onset features modulate
+  every visualizer's intensity per frame
+- **Auto-fill missing inputs** — bring `--video` + `--audio`, or use
+  `--find-video` to search the Internet Archive, or `--compose-music`
+  to synthesise a soundtrack, or `--brief "..."` for full-auto
+- **Kimi for creative judgement** — query expansion, vision-based clip
+  picking, music key/mode/bpm director, optional `--auto-flavor`
+  detector + viz selection from a frame thumbnail
 
 ## Install
 
+Direct from this repo, into Hermes:
+
 ```bash
-# Hermes Agent — clone directly into the skill install path
 mkdir -p ~/.hermes/skills/creative
 git clone https://github.com/Apolotary/blob-tracker.git \
-    ~/.hermes/skills/creative/process-variations-media-art
+    ~/.hermes/skills/creative/blob-tracker
 
-# Claude Code (also compatible — same SKILL.md format)
-mkdir -p ~/.claude/skills
-git clone https://github.com/Apolotary/blob-tracker.git \
-    ~/.claude/skills/process-variations-media-art
-
-# Dependencies
-pip install -r ~/.hermes/skills/creative/process-variations-media-art/requirements.txt
+pip install -r ~/.hermes/skills/creative/blob-tracker/requirements.txt
 ```
+
+For Claude Code, swap the path:
+```bash
+git clone https://github.com/Apolotary/blob-tracker.git \
+    ~/.claude/skills/blob-tracker
+```
+
+`ffmpeg` must be on your `$PATH` (`brew install ffmpeg`).
+
+The skill uses `opencv-contrib-python` for the saliency + CSRT-tracker
+detectors. If you already have plain `opencv-python` installed, replace
+it: `pip uninstall opencv-python && pip install opencv-contrib-python`.
 
 ## Run
 
 ```bash
-export MOONSHOT_API_KEY=sk-...
-export PV_OUT_DIR=$HOME/process-variations
+export MOONSHOT_API_KEY=sk-...        # only when using --brief / --compose-music / --auto-flavor
 
-cd ~/.hermes/skills/creative/process-variations-media-art/scripts
-python pipeline.py --brief "1950s home movie of a flower garden, dreamy ambient pad"
+# 1. Pure: existing video + existing audio
+python scripts/render.py --video clip.mp4 --audio track.wav \
+    --detector mog2 --viz centroid-trail,network --output out.mp4
+
+# 2. Compose music for an existing video
+python scripts/render.py --video clip.mp4 --compose-music \
+    --music-brief "warm contemplative ambient pad" \
+    --viz silhouette,outline --output out.mp4
+
+# 3. Find video on IA, bring your own audio
+python scripts/render.py --find-video "lunar surface NASA" \
+    --audio mytrack.wav --viz heatmap,corner-ticks --output out.mp4
+
+# 4. Full auto from a creative brief
+python scripts/render.py --brief "1920s botanical, dreamy ambient pad" \
+    --auto-flavor --dual-format
+
+# 5. The "spatial echo" — blob bbox shows mirrored content from elsewhere
+python scripts/render.py --video clip.mp4 \
+    --detector mog2 --viz spatial-echo,corner-ticks \
+    --viz-params '{"spatial-echo":{"mode":"rotate","time_shift_frames":12}}' \
+    --output out.mp4
 ```
 
-After ~3 minutes you'll have a directory under `$PV_OUT_DIR/<slug>/` with:
+Output goes to `--output` (single mp4) or to
+`$BLOB_OUT_DIR/<slug>/` (multi-file run with intermediate `winner.json`,
+`audio.json`, `audio.wav`, etc.). Default `BLOB_OUT_DIR` is
+`~/blob-tracker`.
 
-- `<slug>-1920x1080.mp4` — horizontal final
-- `<slug>-1080x1920.mp4` — vertical final (Shorts/Reels)
-- `source.mp4` — the trimmed public-domain source
-- `audio.wav` — the composed ambient score
-- `audio.json` — Kimi's musical decisions
-- `winner.json` — the IA candidate Kimi picked + reason
-- `metadata.json` — Kimi's title + description
+## Use in Hermes Agent chat
 
-## Scripts
+Once installed, the skill becomes a slash command:
 
-| Script                 | Uses Kimi | What it does                                  |
-|------------------------|-----------|-----------------------------------------------|
-| `kimi_client.py`       | —         | shared client (OpenAI-compatible)             |
-| `brief_to_queries.py`  | text      | brief → 3-5 IA search queries                 |
-| `ia_search.py`         | —         | live IA search, returns h.264 mp4 candidates  |
-| `pick_candidate.py`    | vision    | thumbnail comparison → pick best fit          |
-| `prepare_source.py`    | —         | download, energy-scout, square-crop, scale    |
-| `compose_music.py`     | text      | spec → 5-layer numpy synth → 26 s WAV         |
-| `blob_render.py`       | —         | render with audio-reactive HUD + glitch fx    |
-| `title_and_desc.py`    | text      | metadata for YouTube/Shorts upload            |
-| `pipeline.py`          | —         | one-shot orchestrator                         |
+```
+/blob-tracker --video clip.mp4 --detector mog2 --viz centroid-trail,network
+```
 
-Both `compose_music.py` and `blob_render.py` work standalone without Kimi
-(use `--spec` and pre-existing inputs respectively).
+Or in natural conversation:
 
-## Effects
+```
+hermes chat --toolsets skills -q "blob-track this clip with the heatmap viz"
+hermes chat --toolsets skills -q "find a NASA clip and make a media-art piece"
+```
 
-`blob_render.py --effects rgb_shift,ripple,pixel_sort,lagfun,invert_in_blob,scanlines,network_graph,hud`
+Full install paths and Hermes config in [`INSTALL.md`](INSTALL.md).
 
-All eight primitives are documented in `references/effect-glossary.md`. They
-are individually toggleable; the default stack is everything-on. Each is
-audio-reactive — see `references/audio-design.md` for the signal→effect
-mapping table.
+## Modules
 
-## Why Kimi for the agentic decisions
+| Script | Uses Kimi | What it does |
+|---|---|---|
+| `scripts/render.py` | text+vision (opt) | Main entry. Composes everything. |
+| `scripts/detectors.py` | — | Registry of 16 detector flavors. |
+| `scripts/visualizers.py` | — | Registry of 14 viz flavors. |
+| `scripts/postfx.py` | — | Registry of 13 optional glitch primitives. |
+| `scripts/audio_features.py` | — | RMS / kick / high / onset extractor. |
+| `scripts/video_search.py` | text+vision | IA search + Kimi pick. Standalone CLI. |
+| `scripts/compose_music.py` | text | Brief → music spec → 5-layer numpy synth. |
+| `scripts/prepare_source.py` | — | Download + energy-scout + square-crop. |
+| `scripts/kimi_client.py` | — | OpenAI-compatible Kimi client. |
 
-- Picking from search results requires *taste*, not just retrieval. Kimi's
-  vision model can look at six tiny thumbnails and judge which one will yield
-  rich 26 seconds of footage.
-- Choosing musical key/mode from a single creative brief is a
-  small-but-creative judgement; `kimi-k2.6` does it well at a fraction of a
-  cent per call.
-- Title-and-description writing benefits from Kimi's compression and tone
-  control — this skill specifically asks for "terse, technical, media-art
-  register, no hype."
+Each helper is independently CLI-invokable for debugging or one-off use.
 
-## Hackathon submission notes
+## Why Kimi for the creative decisions
 
-- The repository is the skill itself. Drop into `~/.hermes/skills/creative/`
-  and the agent has a new `/process-variations-media-art` slash command.
-- The included **demo piece** (PV020 in the parent project) was produced with
-  an earlier proprietary version of this pipeline — see the demo video tweet.
-- All footage in any output is public-domain (Internet Archive Prelinger /
-  NASA / NARA collections by default).
-- All Kimi calls go through `kimi_client.py` — swap the model ID via
-  `KIMI_MODEL=...` env if you want to try `kimi-k2.5` or older.
+- **Picking a clip from search results** is *taste*, not retrieval —
+  Kimi's vision model judges six tiny IA thumbnails and picks the one
+  that will yield rich 26 seconds.
+- **Choosing musical mode/bpm from a brief** is a small-but-creative
+  judgement; `kimi-k2.6` does it well at sub-cent cost per call.
+- **Auto-flavor detector + viz selection** lets Kimi-vision look at
+  a frame thumbnail and recommend the right blob-tracking parameters
+  for that footage.
+
+All Kimi calls go through `kimi_client.py` — swap the model ID via
+`KIMI_MODEL=...` env if you want to try a different K2 variant.
+
+## Reference docs
+
+- [`references/detector-flavors.md`](references/detector-flavors.md) —
+  every detector with parameters and recommended use case
+- [`references/viz-flavors.md`](references/viz-flavors.md) —
+  every visualization with parameters and combination tips
+- [`references/postfx-glossary.md`](references/postfx-glossary.md) —
+  glitch primitive parameters and audio mappings
+- [`references/audio-design.md`](references/audio-design.md) —
+  how the 5-layer ambient synth is built and what Kimi's mood map controls
+
+## Hackathon submission
+
+- The repository **is** the skill. Drop into `~/.hermes/skills/creative/`
+  and the agent has a new `/blob-tracker` slash command.
+- All footage in any output is public-domain (Internet Archive
+  Prelinger / NASA / NARA collections by default).
+- All AI calls go to **Kimi (Moonshot AI)** — query expansion, vision
+  picks, music director, auto-flavor selection.
 
 ## License
 
-MIT.
+MIT — see [`LICENSE`](LICENSE). Reusing this code requires retaining
+the copyright and license notice.

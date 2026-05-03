@@ -9,3 +9,6 @@ __pycache__/
 *.swp
 .idea/
 .vscode/
+
+.venv/
+*.egg-info/

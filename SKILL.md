@@ -1,12 +1,12 @@
 ---
-name: process-variations-media-art
-description: Turn a theme into a 26-second machine-vision media-art short. Searches the Internet Archive for public-domain footage, composes ambient music in Python, and renders an audio-reactive blob-tracking + glitch-art piece in dual format (16:9 + 9:16). Uses Kimi (Moonshot) for creative decisions — picking the right footage candidate from search results, choosing musical mood, generating per-piece title/description.
-version: 1.0.0
+name: blob-tracker
+description: Render a video with audio-reactive blob tracking in any of 16 detector flavors and 14 visualization flavors, layered with optional glitch primitives. Bring your own video and audio, or have the skill find a public-domain clip on the Internet Archive and compose an ambient soundtrack. Built for the Nous Research / Kimi Creative Hackathon (May 2026), Kimi Track.
+version: 2.0.0
 license: MIT
 platforms: [macos, linux]
 metadata:
   hermes:
-    tags: [video, audio, generative, public-domain, glitch, blob-tracking, kimi]
+    tags: [video, computer-vision, blob-tracking, generative, public-domain, audio-reactive, kimi]
     category: creative
   hackathon:
     event: Nous Research / Kimi Creative Hackathon (May 2026)
@@ -16,194 +16,171 @@ allowed-tools: [Bash, Read, Write]
 user-invocable: true
 ---
 
-# process-variations-media-art
+# blob-tracker
 
-Turn a one-line creative brief into a finished 26-second machine-vision short — public-domain footage, autonomous music composition, audio-reactive blob-tracking + glitch effects, dual-format export (16:9 + 9:16). Kimi (Moonshot) drives the creative decisions.
+Render an arbitrary video with audio-reactive blob tracking. Choose from
+**16 detector flavors** and **14 visualization flavors** that combine
+freely. The skill fills in any missing inputs on demand: bring your own
+video + audio, or have it find a public-domain clip on the Internet
+Archive and compose an ambient soundtrack.
 
 ## When to use
 
 Invoke this skill when the user asks for any of:
 
-- "make a media-art short about <theme>"
-- "find a public-domain video and turn it into a glitch piece"
-- "compose me 26 seconds of ambient and put it under archival footage"
-- "render an audio-reactive blob-tracking video"
-- "process variation on <subject>"
-- Anything that combines: archival/public-domain video search + ambient music + audio-reactive visual effects.
+- "blob-track this video"
+- "track motion in <clip>" / "find blobs in <clip>"
+- "make a media-art piece from <video> with <audio>"
+- "find a public-domain video and blob-track it"
+- "compose music for this video and add a centroid trail"
+- "render <video> with the [detector flavor] detector and [viz flavor]"
+- "what blob detector should I use for this footage?" (then `--auto-flavor`)
 
-Skip this skill for: photo edits, single-image generation, music-only renders without video, plain video stitching without effects.
+Skip this skill for: still-image generation, music-only renders, plain
+video stitching without tracking.
 
-## Effects palette (17 audio-reactive primitives)
-
-Drawn from the TouchDesigner / video-synth lineage with concrete inspiration
-from **Tachyons+** (NTSC composite enhancers — chroma desync, posterization,
-composite feedback) and **Freedom Enterprise** (Pedro Silva's Portuguese
-modular video system — sync separation, kolorizer, dirty mixer transitions).
-
-Geometric: `ripple` · `mosaic` · `slit_scan`
-Colour: `rgb_shift` · `yuv_split` · `chroma_rotate` · `luma_lut`
-Contrast: `threshold_band` · `edge_glow`
-Row-level: `pixel_sort` · `sync_jitter`
-Blob-locked: `invert_in_blob`
-Temporal: `feedback` · `lagfun`
-Texture: `scanlines`
-HUD: `network_graph` · `hud`
-
-Each is individually toggleable via `--effects ...`. Full glossary with
-parameter ranges in `references/effect-glossary.md`.
-
-## What it produces
-
-A directory with:
-
-- `source.mp4` — the trimmed, square-cropped public-domain source (1080×1080, 26 s)
-- `audio.wav` — composed ambient soundtrack (26 s, stereo, 44.1 kHz)
-- `<slug>-1920x1080.mp4` — horizontal final
-- `<slug>-1080x1920.mp4` — vertical final (Shorts/Reels)
-- `metadata.json` — title, description, IA source URL, musical key/tempo, render log
-
-## Pipeline (six stages)
-
-1. **Brief → search query**     — Kimi turns the user's brief into 3-5 IA search queries.
-2. **IA candidate scoring**     — for each search, fetch top results from `archive.org/advancedsearch.php`; pull thumbnails; let Kimi-vision pick the best one.
-3. **Source preparation**       — `scripts/prepare_source.py` trims and square-crops to 26 s × 1080×1080.
-4. **Music composition**        — Kimi picks key/mood; `scripts/compose_music.py` synthesises an ambient stack (pad + drone + sparkles + sub-pulse + emulsion noise).
-5. **Render**                   — `scripts/blob_render.py` renders dual-format with audio-reactive blob tracking + glitch primitives.
-6. **Title + description**      — Kimi generates the title and YouTube description, written to `metadata.json`.
-
-## Procedure (what the agent should do)
-
-### 0. Preflight
+## CLI surface
 
 ```bash
-# Required
-test -n "$MOONSHOT_API_KEY" || { echo "MOONSHOT_API_KEY not set"; exit 2; }
-
-# Recommended workspace (the scripts default here, override with PV_OUT_DIR)
-export PV_OUT_DIR="${PV_OUT_DIR:-$HOME/process-variations}"
-mkdir -p "$PV_OUT_DIR"
+python scripts/render.py [video source] [audio source] [tracking] [output]
 ```
 
-Dependencies (one-time):
-```bash
-pip install -r "$(dirname $0)/requirements.txt"
-# numpy, opencv-python, pillow, librosa, requests, openai
-```
+### Video source (one of)
 
-### 1. Generate IA search queries via Kimi
+- `--video PATH` — use existing file
+- `--find-video "<query>"` — search Internet Archive (no Kimi expansion)
+- `--brief "<text>"` — Kimi expands to 3-5 IA queries, vision-picks the best
 
-```bash
-python scripts/brief_to_queries.py \
-  --brief "$USER_BRIEF" \
-  --out "$PV_OUT_DIR/queries.json"
-```
+### Audio source (zero or one of)
 
-Calls Kimi (`kimi-k2.6`) with a short system prompt asking for 3–5 IA queries that would yield strong public-domain footage matching the brief. Output is a JSON array of queries.
+- `--audio PATH` — use existing file (.wav/.mp3/.m4a)
+- `--compose-music` — synthesise an ambient soundtrack (Kimi picks key/mode/bpm)
+- `--music-brief "<text>"` — override brief just for music
+- `--music-spec FILE.json` — bypass Kimi with explicit `{key, mode, bpm, progression}`
+- (omit all three — render runs silent, visualizers receive zero amplitude)
 
-### 2. Search IA + score candidates
+### Detector + visualization
 
-```bash
-python scripts/ia_search.py \
-  --queries "$PV_OUT_DIR/queries.json" \
-  --out "$PV_OUT_DIR/candidates.json" \
-  --max-per-query 6
+- `--detector NAME` — see [Detector flavors](#detector-flavors-16) below
+- `--viz NAME1,NAME2,…` — see [Visualization flavors](#visualization-flavors-14)
+- `--postfx NAME1,…` — optional non-blob glitch layer
+- `--auto-flavor` — Kimi-vision picks detector + viz from a frame thumbnail
 
-python scripts/pick_candidate.py \
-  --candidates "$PV_OUT_DIR/candidates.json" \
-  --brief "$USER_BRIEF" \
-  --out "$PV_OUT_DIR/winner.json"
-```
+### Output
 
-`ia_search.py` queries `archive.org/advancedsearch.php`, prefers `prelinger`/`opensource_movies`/`publicdomainmovies` collections, and returns the highest-download h.264 mp4s. `pick_candidate.py` downloads thumbnail JPGs (or extracts a frame from the source if no thumbnail) and asks Kimi-vision to pick the one whose imagery best fits the brief.
+- `--output PATH` — final mp4
+- `--duration 26` — default 26 s
+- `--fps 30` / `--size 1080` — square crop side
+- `--dual-format` — also produce 1920×1080 + 1080×1920 (Shorts/Reels)
 
-### 3. Prepare source
+## Detector flavors (16)
 
-```bash
-python scripts/prepare_source.py \
-  --winner "$PV_OUT_DIR/winner.json" \
-  --duration 26 \
-  --size 1080 \
-  --out "$PV_OUT_DIR/source.mp4"
-```
+| Flavor | Algorithm | Best for |
+|---|---|---|
+| `motion-diff` | Frame differencing + luma threshold | Static-camera, default |
+| `mog2` | OpenCV MOG2 background subtraction | Lighting changes |
+| `knn` | OpenCV KNN background subtraction | Better noise rejection |
+| `flow` | Farneback dense optical flow | Smooth motion, pans, drifts |
+| `color-hsv` | HSV range filter | Track a single colour |
+| `color-cluster` | k-means colour quantisation | Multi-region colour scenes |
+| `simple-blob` | `cv2.SimpleBlobDetector` (LoG keypoints) | Distinct circular spots |
+| `dog` | Difference-of-Gaussians multi-scale | Astronomy / micro / spots |
+| `circles` | Hough circle transform | Round things |
+| `saliency-fine` | `cv2.saliency` static fine-grained | "What's interesting" |
+| `saliency-spec` | spectral residual salience | Frequency-domain salience |
+| `csrt` | multi-target CSRT trackers | Persistent IDs across frames |
+| `edge` | Canny + morphology + connected comps | Outline-driven |
+| `accumulation` | exponentially-weighted motion accum | Slow lingering trails |
+| `watershed` | marker-based watershed segmentation | Touching-blob separation |
+| `contour-area` | luma threshold + contours | Static high-contrast |
 
-Downloads the chosen mp4, finds a 26-second window with the highest visual energy (motion + variance), centre-crops to a square at 1080×1080.
+Pass extra detector params via `--detector-params '{"param": value}'`.
+Full reference in [`references/detector-flavors.md`](references/detector-flavors.md).
 
-### 4. Compose music
+## Visualization flavors (14)
 
-```bash
-python scripts/compose_music.py \
-  --brief "$USER_BRIEF" \
-  --duration 26 \
-  --out "$PV_OUT_DIR/audio.wav"
-```
+| Flavor | What it draws |
+|---|---|
+| `bbox` | Plain rectangles |
+| `corner-ticks` | L-shaped corner brackets + IDs (the original HUD) |
+| `crosshair` | Cross + ID at centroid |
+| `centroid-trail` | Long-decay coloured ink trail per blob ID |
+| `network` | Lines between nearby blob centres |
+| `letters` | ASCII letters along blob velocity |
+| `glyphs` | Unicode shape constellation around centroids |
+| `cctv-zoom` | Corner inset of largest blob, CCTV-style |
+| `silhouette` | Hue-cycling fill on the foreground mask |
+| `outline` | Contour line on the foreground mask |
+| `voronoi` | Voronoi cells from blob centres |
+| `convex-hull` | Polygon enclosing all centres |
+| `heatmap` | Long-accumulating occupancy overlay |
+| `spatial-echo` | Each blob bbox shows pixels from ELSEWHERE in the frame |
 
-Asks Kimi for a JSON spec — `{"key": "Eb", "mode": "major", "bpm": 58, "mood": "warm/contemplative"}` — then synthesises chord pad + sustained string drone + sparse sparkles + sub-pulse + emulsion-noise floor with numpy.
+Combine freely: `--viz centroid-trail,network,corner-ticks`. Per-viz
+params: `--viz-params '{"spatial-echo": {"mode": "rotate"}}'`. Full
+reference in [`references/viz-flavors.md`](references/viz-flavors.md).
 
-### 5. Render dual-format
+## Optional glitch postfx (13)
 
-```bash
-LAYOUT=horizontal python scripts/blob_render.py \
-  --source "$PV_OUT_DIR/source.mp4" \
-  --audio  "$PV_OUT_DIR/audio.wav" \
-  --slug   "$PV_SLUG" \
-  --out    "$PV_OUT_DIR"
-
-LAYOUT=vertical   python scripts/blob_render.py \
-  --source "$PV_OUT_DIR/source.mp4" \
-  --audio  "$PV_OUT_DIR/audio.wav" \
-  --slug   "$PV_SLUG" \
-  --out    "$PV_OUT_DIR"
-```
-
-Renders single-pane (square source centred) with audio-reactive blob tracking + glitch primitives (RGB chromatic aberration on highs, radial-sine displacement, pixel-sort on motion-mask peaks, lagfun trail, in-blob colour invert, network-graph connection lines between blob centres, TouchDesigner-style HUD).
-
-### 6. Title + description via Kimi
-
-```bash
-python scripts/title_and_desc.py \
-  --winner "$PV_OUT_DIR/winner.json" \
-  --music  "$PV_OUT_DIR/audio.json" \
-  --brief  "$USER_BRIEF" \
-  --out    "$PV_OUT_DIR/metadata.json"
-```
-
-## One-shot orchestrator
-
-For typical use, just run:
-
-```bash
-python scripts/pipeline.py --brief "<USER_BRIEF>" --slug "<SLUG>"
-```
-
-It chains stages 1–6 and writes everything to `$PV_OUT_DIR/<SLUG>/`.
+`--postfx rgb-shift,scanlines,lagfun` etc. — applied AFTER the blob viz
+chain. Defaults to empty. Full list:
+`rgb-shift, yuv-split, chroma-rotate, luma-lut, sync-jitter, ripple,
+mosaic, threshold-band, edge-glow, feedback, lagfun, scanlines, slit-scan`.
+See [`references/postfx-glossary.md`](references/postfx-glossary.md).
 
 ## Examples
 
-**Brief**: "old botanical film with hallucinated colour and a slow ambient pad"
-→ The agent finds *Fruits and Flowers* (Internet Archive 0780, ~1920); selects a 26 s iris + intertitle + macro-stamen segment; writes a 58 BPM Eb-major ambient score; renders blob-tracker over the footage with chromatic aberration on high-band peaks.
+```bash
+# 1. Pure: existing video + existing audio
+python scripts/render.py --video clip.mp4 --audio track.wav \
+    --detector mog2 --viz centroid-trail,network \
+    --output out.mp4
 
-**Brief**: "1950s American family Christmas, glitched"
-→ Finds a Prelinger home movie, picks a tree-and-presents segment; F-major bell-arp music; heavy datamosh + RGB shift; blob tracker draws network graph over moving family members.
+# 2. Compose music for an existing video
+python scripts/render.py --video clip.mp4 --compose-music \
+    --music-brief "warm contemplative ambient pad" \
+    --viz silhouette,outline --output out.mp4
 
-**Brief**: "NASA solar plasma, dread, sub-bass"
-→ Finds NASA SDO public-domain footage; C-minor drone + 40 Hz sub-pulse; full-rect blob track on plasma loops + pixel-sort on flares.
+# 3. Find video on IA, bring your own audio
+python scripts/render.py --find-video "lunar surface NASA" \
+    --audio mytrack.wav --viz heatmap,corner-ticks --output out.mp4
+
+# 4. Full auto from creative brief
+python scripts/render.py --brief "1920s botanical, dreamy ambient pad" \
+    --auto-flavor --dual-format
+
+# 5. The "spatial echo" — blob bbox shows mirrored content
+python scripts/render.py --video clip.mp4 \
+    --detector mog2 --viz spatial-echo,corner-ticks \
+    --viz-params '{"spatial-echo":{"mode":"rotate","time_shift_frames":12}}' \
+    --output out.mp4
+```
 
 ## Required env
 
-- `MOONSHOT_API_KEY` — Kimi (Moonshot) API key. Get one at https://platform.kimi.ai/console/api-keys
-- `KIMI_MODEL` *(optional)* — default `kimi-k2-turbo-preview` for text. Switch to `kimi-k2.6` for thinking-mode at the cost of ~5x more tokens per call.
-- `KIMI_VISION_MODEL` *(optional)* — default `kimi-k2.6`. The only K2 model with reliable vision input as of 2026-05.
-- `PV_OUT_DIR` *(optional)* — where to write outputs. Default `~/process-variations`.
-- `PV_SLUG` *(optional)* — slug for the run. Auto-generated from brief if omitted.
+- `MOONSHOT_API_KEY` — only when using `--brief`, `--auto-flavor`, or
+  `--compose-music` without `--music-spec`. Pure renders with explicit
+  `--video` + (optional) `--audio` need no API key.
+- `KIMI_MODEL` *(optional)* — default `kimi-k2-turbo-preview` (text).
+- `KIMI_VISION_MODEL` *(optional)* — default `kimi-k2.6` (vision-capable).
+- `BLOB_OUT_DIR` *(optional)* — workspace root. Default `~/blob-tracker`.
 
-## Costs (typical 26 s piece)
+## Costs (typical 26 s piece, full-auto from brief)
 
-- Kimi calls: ~6 short calls (queries, vision-pick, music spec, title, description). ~$0.01 total at `kimi-k2.6` rates.
-- Network: ~50–100 MB IA download.
-- Compute: pure CPU, ~3 minutes wall on an Apple M1 / 8 GB; no GPU required.
+- Kimi calls: ~3 (query expansion + vision pick + auto-flavor).
+- Network: 0–500 MB IA download (skip with `--video`).
+- Compute: pure CPU, ~3 minutes wall on Apple M1 / 8 GB.
 
-## Reference
+## Helpers (each independently CLI-invokable)
 
-- `references/effect-glossary.md` — definitions and parameters for every glitch primitive used.
-- `references/audio-design.md` — how the ambient stack is built and how Kimi's mood map turns into actual key/bpm choices.
-- `templates/kimi-prompts.json` — prompt scaffolds for each Kimi call.
+| Script | Purpose |
+|---|---|
+| `scripts/detectors.py` | Detector registry. CLI smoke test: `python detectors.py --input v.mp4 --detector mog2` |
+| `scripts/visualizers.py` | Viz registry — used by render.py |
+| `scripts/postfx.py` | Glitch primitives — used by render.py |
+| `scripts/audio_features.py` | RMS / kick / high / onset extractor |
+| `scripts/video_search.py` | `python video_search.py --brief "..." --out winner.json` |
+| `scripts/compose_music.py` | `python compose_music.py --brief "..." --out a.wav` |
+| `scripts/prepare_source.py` | Download + energy-scout + square-crop helper |
+| `scripts/kimi_client.py` | Shared OpenAI-compatible Kimi client |
+| `scripts/render.py` | Main entry point — composes all of the above |
