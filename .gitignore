@@ -4,12 +4,30 @@ __pycache__/
 .DS_Store
 .scratch_*/
 .src_cache_*/
-.env
-.env.local
+
+# editors
 *.swp
 .idea/
 .vscode/
 
+# virtualenvs / build
 .venv/
 *.egg-info/
+
+# secret hygiene
+.env
+.env.*
+.envrc
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+id_ecdsa*
+*credentials*
+*secret*
+*token*
+
+# local working notes
 trailer-prompts.md
