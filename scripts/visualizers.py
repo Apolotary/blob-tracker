@@ -83,18 +83,42 @@ def _audio(audio, key, default=0.0):
 # ============================================================
 
 class BBoxVisualizer(BaseVisualizer):
+    """Plain rectangles. Optional label per box and optional audio-reactive
+    thickness pulse for fast HUD-style trailers."""
     name = "bbox"
 
-    def __init__(self, *, color=(60, 255, 80), thickness: int = 2, **kw):
+    def __init__(self, *, color=(255, 255, 255), thickness: int = 2,
+                 show_label: bool = False,
+                 pulse_audio: bool = False,
+                 pulse_band: str = "kick",
+                 max_thickness: int = 6,
+                 **kw):
         super().__init__(**kw)
         self.color = tuple(int(c) for c in color)
         self.thickness = thickness
+        self.show_label = show_label
+        self.pulse_audio = pulse_audio
+        self.pulse_band = pulse_band
+        self.max_thickness = max_thickness
 
     def render(self, canvas, blobs, mask, *, t, audio):
         out = canvas.copy()
-        for b in blobs:
+        if self.pulse_audio:
+            level = max(_audio(audio, self.pulse_band),
+                        _audio(audio, "onset"))
+            thick = int(self.thickness +
+                        (self.max_thickness - self.thickness) * level)
+        else:
+            thick = self.thickness
+        for i, b in enumerate(blobs):
             cv2.rectangle(out, (b.x, b.y), (b.x + b.w, b.y + b.h),
-                          self.color, self.thickness, cv2.LINE_AA)
+                          self.color, thick, cv2.LINE_AA)
+            if self.show_label:
+                tag_id = b.id if b.id >= 0 else i
+                cv2.putText(out, f"#{tag_id:02d} {int(b.score):05d}",
+                            (b.x + 4, max(14, b.y - 6)),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.42,
+                            self.color, 1, cv2.LINE_AA)
         return out
 
 
@@ -235,14 +259,30 @@ class CentroidTrailVisualizer(BaseVisualizer):
 class NetworkVisualizer(BaseVisualizer):
     name = "network"
 
-    def __init__(self, *, color=(255, 240, 220),
-                 max_distance: int = 280, **kw):
+    def __init__(self, *, color=(255, 255, 255),
+                 max_distance: int = 280,
+                 thickness: int = 1,
+                 pulse_audio: bool = False,
+                 pulse_band: str = "kick",
+                 max_thickness: int = 3,
+                 **kw):
         super().__init__(**kw)
         self.color = tuple(int(c) for c in color)
         self.max_d = max_distance
+        self.thickness = thickness
+        self.pulse_audio = pulse_audio
+        self.pulse_band = pulse_band
+        self.max_thickness = max_thickness
 
     def render(self, canvas, blobs, mask, *, t, audio):
         amp = _audio(audio, "amp")
+        if self.pulse_audio:
+            level = max(_audio(audio, self.pulse_band),
+                        _audio(audio, "onset"))
+            thick = int(self.thickness +
+                        (self.max_thickness - self.thickness) * level)
+        else:
+            thick = self.thickness
         out = canvas.copy()
         threshold = self.max_d + 220 * amp
         centers = [(b.x + b.w // 2, b.y + b.h // 2) for b in blobs]
@@ -254,7 +294,7 @@ class NetworkVisualizer(BaseVisualizer):
                     alpha = max(0.0, 1.0 - d / threshold)
                     col = tuple(int(c * (0.4 + 0.6 * alpha)) for c in self.color)
                     cv2.line(out, centers[i], centers[j], col,
-                             1, cv2.LINE_AA)
+                             thick, cv2.LINE_AA)
         return out
 
 
