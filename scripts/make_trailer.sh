@@ -32,25 +32,26 @@ COMMON_VP='{
                     "pulse_audio":false, "max_distance":140},
   "spatial-echo":  {"mode":"mirror", "border_thickness":1,
                     "border_color":[255,255,255]},
+  "centroid-trail":{"line_thickness":2, "decay":0.94},
   "glyphs":        {"charset":"·+◦*"},
   "emojis":        {"font_size":56, "lifetime":18,
-                    "charset":"🔥✨💫🌟⭐🎆"}
+                    "charset":"🐝🌻🌼🌸✨"}
 }'
 
 # ---- 5 shots: slug | match | detector | det-params | inside-effect ----
-# Target ~25-35 boxes per shot. Network max_distance=140 keeps mesh sparse.
+# All-macro arc — flowers + insects across all 5 shots. Each shot showcases
+# a different detector flavor (dog, flow, simple-blob, circles, mog2).
 declare -a SHOTS=(
-  # marigolds: dog finds petal edges; few clean boxes
+  # 1. marigolds: dog finds petal edges; clean boxes, no inner effect
   "marigolds|Cinematic time-lapse|dog|{\"sigma_low\":1.2,\"sigma_high\":4.0,\"thresh\":5.0,\"min_area\":250,\"max_n\":30}|"
-  # murmuration: many small boxes for the bird clusters; no inner effect
-  # (the boxes' own re-detection per frame *is* the movement)
-  "murmuration|Massive flock|dog|{\"sigma_low\":0.8,\"sigma_high\":2.5,\"thresh\":2.5,\"min_area\":25,\"max_n\":35}|"
-  # bee: simple-blob picks bee + petal pockets; spatial-echo trick inside
-  "bee|Extreme close-up|simple-blob|{\"min_threshold\":20,\"min_area\":350,\"max_n\":25}|spatial-echo"
-  # fireflies: dog catches each glowing point; glyphs scatter inside
-  "fireflies|Ethereal forest|dog|{\"sigma_low\":1.2,\"sigma_high\":3.5,\"thresh\":4.0,\"min_area\":80,\"max_n\":25}|glyphs"
-  # lava: simple-blob at lower threshold catches more sparks; emojis inside
-  "lava|Volcanic eruption|simple-blob|{\"min_threshold\":140,\"min_area\":80,\"max_n\":35}|emojis"
+  # 2. hummingbird: flow detects the wing-blur halo; centroid-trail trails the bird
+  "hummingbird|single iridescent emerald-green|flow|{\"mag_thresh\":1.4,\"min_area\":250,\"max_n\":25}|centroid-trail"
+  # 3. bee: simple-blob picks bee + petal pockets; spatial-echo trick
+  "bee|single fuzzy honeybee|simple-blob|{\"min_threshold\":20,\"min_area\":350,\"max_n\":25}|spatial-echo"
+  # 4. spider web: Hough circles literally find the dewdrops; clean network forms web pattern
+  "spiderweb|intricate orb spider web|circles|{\"dp\":1.2,\"min_dist\":24,\"param2\":18,\"min_radius\":6,\"max_radius\":40,\"min_area\":40,\"max_n\":35}|"
+  # 5. sunflower: mog2 separates moving bees from static flower; bee-themed emojis
+  "sunflower|massive bright-yellow sunflower|mog2|{\"history\":120,\"var_threshold\":18,\"min_area\":100,\"max_n\":35}|emojis"
 )
 
 # ---- step 1: full 30 s music slice (for the final mux) ----
