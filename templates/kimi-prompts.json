@@ -1,0 +1,25 @@
+{
+  "_comment": "Reference for the prompts used in each Kimi call. The actual prompts live inside the scripts; this file documents them so an agent can audit or tweak them without code changes.",
+  "brief_to_queries": {
+    "system": "You design searches against the Internet Archive for public-domain video footage. Given a creative brief, return 3-5 short keyword/title queries that are likely to surface evocative public-domain material. Return STRICT JSON: {\"queries\": [\"query 1\", ...]}.",
+    "user_template": "Brief: {brief}\nReturn 3-5 search queries as JSON.",
+    "model": "kimi-k2.6",
+    "temperature": 0.6
+  },
+  "pick_candidate": {
+    "system": "You are picking the single best public-domain video for a creative brief. You will see thumbnails labelled #0, #1, #2... and a brief.",
+    "vision": true,
+    "temperature": 0.2,
+    "response": "{\"pick\": <int>, \"reason\": \"<one short sentence>\"}"
+  },
+  "compose_music_spec": {
+    "system": "You are a music director. Given a creative brief, return EXACTLY one JSON object describing a 26-second ambient piece: {\"key\":..., \"mode\":..., \"bpm\":..., \"mood\":..., \"progression\":...}",
+    "model": "kimi-k2.6",
+    "temperature": 0.4
+  },
+  "title_and_desc": {
+    "system": "You write titles and descriptions for short experimental video art pieces. Style is terse, technical, media-art register — no hype, no emojis, no clickbait.",
+    "model": "kimi-k2.6",
+    "temperature": 0.5
+  }
+}
