@@ -141,13 +141,14 @@ Full install paths and Hermes config in [`INSTALL.md`](INSTALL.md).
 | `scripts/render.py` | text+vision (opt) | Main entry. Composes everything. |
 | `scripts/fetch_demos.py` | — | Download the public-domain starter pack. |
 | `scripts/detectors.py` | — | Registry of 16 detector flavors. |
-| `scripts/visualizers.py` | — | Registry of 14 viz flavors. |
+| `scripts/visualizers.py` | — | Registry of 15 viz flavors. |
 | `scripts/postfx.py` | — | Registry of 13 optional glitch primitives. |
 | `scripts/audio_features.py` | — | RMS / kick / high / onset extractor. |
 | `scripts/video_search.py` | text+vision | IA search + Kimi pick. Standalone CLI. |
 | `scripts/compose_music.py` | text | Brief → music spec → 5-layer numpy synth. |
 | `scripts/prepare_source.py` | — | Download + energy-scout + square-crop. |
 | `scripts/kimi_client.py` | — | OpenAI-compatible Kimi client. |
+| `scripts/make_logo.py` | — | Generate the project logo by running the skill on itself. |
 
 Each helper is independently CLI-invokable for debugging or one-off use.
 
