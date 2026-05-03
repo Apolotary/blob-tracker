@@ -77,32 +77,44 @@ DEMOS = [
 ]
 
 
-def download(url: str, dest: Path) -> bool:
-    """Stream-download with a progress line. Returns True on success."""
-    try:
-        with requests.get(url, stream=True, timeout=60) as r:
-            r.raise_for_status()
-            total = int(r.headers.get("content-length", 0))
-            done = 0
-            with open(dest, "wb") as f:
-                for chunk in r.iter_content(chunk_size=1 << 20):
-                    if not chunk:
-                        continue
-                    f.write(chunk)
-                    done += len(chunk)
-                    if total:
-                        pct = 100 * done / total
-                        sys.stdout.write(
-                            f"\r    {done//(1024*1024):4d} / "
-                            f"{total//(1024*1024):4d} MB  ({pct:5.1f}%)")
-                        sys.stdout.flush()
-            sys.stdout.write("\n")
-        return True
-    except Exception as e:
-        print(f"\n    ERROR: {e}", file=sys.stderr)
-        if dest.exists():
-            dest.unlink()
-        return False
+def download(url: str, dest: Path, *, max_retries: int = 4,
+             backoff: float = 2.0) -> bool:
+    """Stream-download with progress + retries. IA's CDN nodes (.ca/.us
+    archives) intermittently 500 — retry with exponential backoff."""
+    import time
+    for attempt in range(1, max_retries + 1):
+        try:
+            with requests.get(url, stream=True, timeout=60,
+                               allow_redirects=True) as r:
+                r.raise_for_status()
+                total = int(r.headers.get("content-length", 0))
+                done = 0
+                with open(dest, "wb") as f:
+                    for chunk in r.iter_content(chunk_size=1 << 20):
+                        if not chunk:
+                            continue
+                        f.write(chunk)
+                        done += len(chunk)
+                        if total:
+                            pct = 100 * done / total
+                            sys.stdout.write(
+                                f"\r    {done//(1024*1024):4d} / "
+                                f"{total//(1024*1024):4d} MB  ({pct:5.1f}%)")
+                            sys.stdout.flush()
+                sys.stdout.write("\n")
+            return True
+        except Exception as e:
+            if dest.exists():
+                dest.unlink()
+            if attempt >= max_retries:
+                print(f"\n    ERROR after {max_retries} attempts: {e}",
+                      file=sys.stderr)
+                return False
+            wait = backoff ** (attempt - 1)
+            print(f"\n    attempt {attempt}/{max_retries} failed ({e}); "
+                  f"retrying in {wait:.1f}s…", file=sys.stderr)
+            time.sleep(wait)
+    return False
 
 
 def main():
