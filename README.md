@@ -6,7 +6,7 @@
 
 A **Hermes Agent skill** (also Claude-Code-skill compatible) that renders any
 video with audio-reactive blob tracking in **16 detector flavors** and
-**14 visualization flavors** — combine freely. The skill fills in any
+**15 visualization flavors** — combine freely. The skill fills in any
 missing input on demand: bring your own video and audio, or have it find
 a public-domain clip on the Internet Archive and compose an ambient
 soundtrack.
@@ -20,10 +20,11 @@ Kimi Track. All LLM/vision calls go to Kimi (Moonshot AI) `kimi-k2.6`.
   `color-hsv` · `color-cluster` · `simple-blob` · `dog` · `circles` ·
   `saliency-fine` · `saliency-spec` · `csrt` · `edge` · `accumulation` ·
   `watershed` · `contour-area`
-- **14 visualization flavors** — `bbox` · `corner-ticks` · `crosshair` ·
-  `centroid-trail` · `network` · `letters` · `glyphs` · `cctv-zoom` ·
-  `silhouette` · `outline` · `voronoi` · `convex-hull` · `heatmap` ·
-  `spatial-echo` (each blob bbox shows pixels sampled from elsewhere)
+- **15 visualization flavors** — `bbox` · `corner-ticks` · `crosshair` ·
+  `centroid-trail` · `network` · `letters` · `emojis` (color-emoji
+  particles via PIL) · `glyphs` · `cctv-zoom` · `silhouette` · `outline` ·
+  `voronoi` · `convex-hull` · `heatmap` · `spatial-echo` (each blob bbox
+  shows pixels sampled from elsewhere)
 - **13 optional glitch postfx** — chromatic aberration, NTSC chroma
   desync, kolorizer LUT, sync jitter, ripple, mosaic, scanlines, slit
   scan, feedback, lagfun, threshold bands, edge glow, luma rotate

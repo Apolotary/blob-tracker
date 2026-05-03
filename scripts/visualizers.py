@@ -23,6 +23,7 @@ Available flavors (registry keys):
     centroid-trail   Long-decay coloured ink trail per blob ID.
     network          Lines between nearby blob centres.
     letters          ASCII letters spawned along blob velocity.
+    emojis           Color-emoji glyphs spawned along blob velocity (PIL).
     glyphs           Unicode shape constellation around each centroid.
     cctv-zoom        Corner inset of the largest blob, CCTV-style.
     silhouette       Fill the blob mask with hue-cycling colour.
@@ -323,6 +324,142 @@ class LettersVisualizer(BaseVisualizer):
             survivors.append(p)
         self._particles = survivors
         return out
+
+
+# ============================================================
+# 6.5. emojis — color-emoji particles via PIL
+# ============================================================
+
+class EmojisVisualizer(BaseVisualizer):
+    """Like LettersVisualizer but renders Unicode color emoji via PIL.
+    OpenCV's `putText` only knows ASCII vector glyphs, so we route through
+    PIL with a system color-emoji font.
+
+    Font auto-detection (override with `font_path` param):
+      macOS  → /System/Library/Fonts/Apple Color Emoji.ttc
+      Debian → /usr/share/fonts/truetype/noto/NotoColorEmoji.ttf
+      Fedora → /usr/share/fonts/google-noto-color-emoji/NotoColorEmoji.ttf
+      Arch   → /usr/share/fonts/noto-color-emoji/NotoColorEmoji.ttf
+
+    Apple Color Emoji renders best at ~32-48 px; bitmap fonts are
+    auto-resized but get jagged below 16 px or above 96 px.
+    """
+    name = "emojis"
+
+    DEFAULT_FONT_PATHS = (
+        "/System/Library/Fonts/Apple Color Emoji.ttc",
+        "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf",
+        "/usr/share/fonts/google-noto-color-emoji/NotoColorEmoji.ttf",
+        "/usr/share/fonts/noto-color-emoji/NotoColorEmoji.ttf",
+    )
+    DEFAULT_CHARSET = "🌸🌺🌻🌷✨🎆🎇🌟⭐💫🌿"
+
+    def __init__(self, *, lifetime: int = 30,
+                 charset: Optional[str] = None,
+                 font_path: Optional[str] = None,
+                 font_size: int = 36,
+                 seed: int = 7, **kw):
+        super().__init__(**kw)
+        self.lifetime = lifetime
+        self.charset = charset if charset else self.DEFAULT_CHARSET
+        self.font_size = font_size
+        self._rng = np.random.default_rng(seed)
+        self._particles: list[dict] = []
+        self._prev: dict[int, tuple[int, int]] = {}
+        # PIL imports — local so import-time stays cheap when this viz
+        # is unused
+        try:
+            from PIL import Image, ImageDraw, ImageFont
+        except ImportError as e:
+            raise SystemExit(
+                "emojis viz needs Pillow. pip install pillow") from e
+        self._Image = Image
+        self._ImageDraw = ImageDraw
+        # find font
+        from pathlib import Path as _Path
+        candidates = [font_path] if font_path else self.DEFAULT_FONT_PATHS
+        self._font_path = next(
+            (p for p in candidates if p and _Path(p).exists()), None)
+        if self._font_path is None:
+            print(f"WARN: emojis viz: no color-emoji font found in "
+                  f"{self.DEFAULT_FONT_PATHS}; emojis will render as boxes.",
+                  file=__import__("sys").stderr)
+            self._font = ImageFont.load_default()
+        elif self._font_path.endswith(".ttc"):
+            # Apple Color Emoji is a TTC — index 0 is the emoji face
+            try:
+                self._font = ImageFont.truetype(self._font_path,
+                                                 font_size, index=0)
+            except Exception:
+                self._font = ImageFont.load_default()
+        else:
+            try:
+                self._font = ImageFont.truetype(self._font_path, font_size)
+            except Exception:
+                self._font = ImageFont.load_default()
+        # Each emoji codepoint may be one or two UTF-16 surrogates; build a
+        # list of grapheme strings so charset[i] always gives one full emoji
+        self._glyphs = list(self.charset)
+
+    def render(self, canvas, blobs, mask, *, t, audio):
+        # spawn new emojis from each blob's velocity
+        high = _audio(audio, "high")
+        intensity = 0.30 + 0.60 * high
+        new_prev: dict[int, tuple[int, int]] = {}
+        for b in blobs[:6]:
+            tid = b.id if b.id >= 0 else hash((b.x, b.y)) & 0xffff
+            cx, cy = b.x + b.w // 2, b.y + b.h // 2
+            new_prev[tid] = (cx, cy)
+            vx = vy = 0
+            if tid in self._prev:
+                px, py = self._prev[tid]
+                vx, vy = cx - px, cy - py
+            vmag = float(np.hypot(vx, vy))
+            n_spawn = int(1 + intensity * (1 + min(vmag / 6.0, 4.0)))
+            for _ in range(n_spawn):
+                idx = int(self._rng.integers(0, len(self._glyphs)))
+                ch = self._glyphs[idx]
+                self._particles.append({
+                    "x": float(cx) + float(self._rng.normal(0, 6)),
+                    "y": float(cy) + float(self._rng.normal(0, 6)),
+                    "vx": vx * 0.6, "vy": vy * 0.6,
+                    "ch": ch, "age": 0,
+                })
+        self._prev = new_prev
+
+        # age + drift particles, batch-draw on a single PIL pass
+        h, w = canvas.shape[:2]
+        # convert BGR → RGB for PIL once
+        pil_img = self._Image.fromarray(
+            cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB))
+        draw = self._ImageDraw.Draw(pil_img)
+        survivors = []
+        for p in self._particles:
+            p["age"] += 1
+            if p["age"] >= self.lifetime:
+                continue
+            p["x"] += p["vx"] * 0.5
+            p["y"] += p["vy"] * 0.5
+            xi, yi = int(p["x"]), int(p["y"])
+            if -self.font_size < xi < w and -self.font_size < yi < h:
+                # offset so the glyph centre lands on (xi, yi)
+                gx = xi - self.font_size // 2
+                gy = yi - self.font_size // 2
+                try:
+                    draw.text((gx, gy), p["ch"], font=self._font,
+                              embedded_color=True)
+                except Exception:
+                    # If embedded_color isn't supported, fall back to plain
+                    try:
+                        draw.text((gx, gy), p["ch"], font=self._font,
+                                  fill=(255, 255, 255))
+                    except Exception:
+                        pass
+            survivors.append(p)
+        self._particles = survivors
+
+        # convert RGB → BGR for cv2
+        return cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
 
 
 # ============================================================
@@ -676,6 +813,7 @@ REGISTRY: dict[str, type[BaseVisualizer]] = {
         CentroidTrailVisualizer,
         NetworkVisualizer,
         LettersVisualizer,
+        EmojisVisualizer,
         GlyphsVisualizer,
         CCTVZoomVisualizer,
         SilhouetteVisualizer,

@@ -1,6 +1,6 @@
 ---
 name: blob-tracker
-description: Render a video with audio-reactive blob tracking in any of 16 detector flavors and 14 visualization flavors, layered with optional glitch primitives. Bring your own video and audio, or have the skill find a public-domain clip on the Internet Archive and compose an ambient soundtrack. Built for the Nous Research / Kimi Creative Hackathon (May 2026), Kimi Track.
+description: Render a video with audio-reactive blob tracking in any of 16 detector flavors and 15 visualization flavors, layered with optional glitch primitives. Bring your own video and audio, or have the skill find a public-domain clip on the Internet Archive and compose an ambient soundtrack. Built for the Nous Research / Kimi Creative Hackathon (May 2026), Kimi Track.
 version: 2.0.0
 license: MIT
 platforms: [macos, linux]
@@ -19,7 +19,7 @@ user-invocable: true
 # blob-tracker
 
 Render an arbitrary video with audio-reactive blob tracking. Choose from
-**16 detector flavors** and **14 visualization flavors** that combine
+**16 detector flavors** and **15 visualization flavors** that combine
 freely. The skill fills in any missing inputs on demand: bring your own
 video + audio, or have it find a public-domain clip on the Internet
 Archive and compose an ambient soundtrack.
@@ -97,7 +97,7 @@ python scripts/render.py [video source] [audio source] [tracking] [output]
 Pass extra detector params via `--detector-params '{"param": value}'`.
 Full reference in [`references/detector-flavors.md`](references/detector-flavors.md).
 
-## Visualization flavors (14)
+## Visualization flavors (15)
 
 | Flavor | What it draws |
 |---|---|
@@ -107,6 +107,7 @@ Full reference in [`references/detector-flavors.md`](references/detector-flavors
 | `centroid-trail` | Long-decay coloured ink trail per blob ID |
 | `network` | Lines between nearby blob centres |
 | `letters` | ASCII letters along blob velocity |
+| `emojis` | Color emoji glyphs along blob velocity (PIL — needs system color-emoji font) |
 | `glyphs` | Unicode shape constellation around centroids |
 | `cctv-zoom` | Corner inset of largest blob, CCTV-style |
 | `silhouette` | Hue-cycling fill on the foreground mask |

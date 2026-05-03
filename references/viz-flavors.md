@@ -1,6 +1,6 @@
 # Visualization flavors
 
-Fourteen blob-aware visualizers, all exposing the same interface in
+Fifteen blob-aware visualizers, all exposing the same interface in
 `scripts/visualizers.py`. Each is selected via `--viz NAME1,NAME2,...`
 on `render.py` (a comma-separated chain), with optional
 `--viz-params '{NAME: {...}}'` for per-viz overrides.
@@ -91,6 +91,53 @@ trails made of language.
 | `seed` | 7 | RNG seed |
 
 Audio: `high` controls spawn intensity per blob.
+
+## emojis
+
+Same particle system as `letters`, but renders **color emoji glyphs** via
+PIL (OpenCV's `putText` doesn't support emoji). Each tracked blob spawns
+emoji particles along its velocity vector; they age out over `lifetime`
+frames.
+
+| Param | Default | Notes |
+|---|---|---|
+| `lifetime` | 30 | frames a particle survives |
+| `charset` | "🌸🌺🌻🌷✨🎆🎇🌟⭐💫🌿" | emoji set (string of UTF-8 emoji) |
+| `font_path` | auto | override system font path |
+| `font_size` | 36 | px — Apple Color Emoji renders best at 32–48 |
+| `seed` | 7 | RNG seed |
+
+Audio: `high` controls spawn intensity (same as `letters`).
+
+**Font auto-detection** (override with `font_path`):
+- macOS → `/System/Library/Fonts/Apple Color Emoji.ttc`
+- Debian/Ubuntu → `/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf`
+- Fedora → `/usr/share/fonts/google-noto-color-emoji/NotoColorEmoji.ttf`
+- Arch → `/usr/share/fonts/noto-color-emoji/NotoColorEmoji.ttf`
+
+If no color-emoji font is found you'll see boxes — install `noto-color-emoji`
+on Linux (`apt install fonts-noto-color-emoji`).
+
+**Theme presets** — pass a curated charset for the mood:
+```bash
+# Floral
+--viz-params '{"emojis":{"charset":"🌸🌺🌻🌷🌹🌼🥀💮🪻🪷"}}'
+
+# Fireworks / celebration
+--viz-params '{"emojis":{"charset":"🎆🎇✨🎉🎊⭐🌟💫"}}'
+
+# Cosmic
+--viz-params '{"emojis":{"charset":"🌍🌎🌏🌑🌒🌓🌔🌕🌟⭐"}}'
+
+# Faces (chaotic-meme energy)
+--viz-params '{"emojis":{"charset":"😀😎🤡👻💀🤖👽😈🥶🤯"}}'
+
+# Food
+--viz-params '{"emojis":{"charset":"🍕🍔🌮🍣🍩🍪🍓🍇🥑🌶️"}}'
+```
+
+**Performance** ~93 fps at 1080² vs ~140 fps for `letters` — the PIL
+conversion adds ~3 ms per frame.
 
 ## glyphs
 
@@ -226,8 +273,8 @@ Render order matters — earlier viz draw underneath later ones.
 | `heatmap` | `silhouette` | `corner-ticks` |
 | `centroid-trail` | `network` | `crosshair` |
 | `voronoi` | `outline` | `letters` |
-| `spatial-echo` | `glyphs` | `cctv-zoom` |
-| | `convex-hull` | |
+| `spatial-echo` | `glyphs` | `emojis` |
+| | `convex-hull` | `cctv-zoom` |
 
 Default chain (`--viz centroid-trail,network,corner-ticks`) follows
 this — trail is the background layer, network connects the blobs, HUD
